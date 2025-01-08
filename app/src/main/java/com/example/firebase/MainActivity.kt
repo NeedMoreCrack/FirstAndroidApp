@@ -58,14 +58,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkLogin(account: String, pw: String) {
         val loginReturn = findViewById<TextView>(R.id.loginReturn)
-
         getAccountData { accountData ->
             Log.d("accountData", accountData.toString())
             if (accountData[account] == pw) {
                 Log.d("LoginStatus", "Login Successful")
                 loginReturn.text = "登入成功！"
-
                 saveLoginInfo(account, pw)
+                Log.d("Now Login user",account)
                 delayNavigationToChatActivity()
             } else {
                 Log.d("LoginStatus", "Login Failed")
@@ -100,7 +99,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun navigateToChatActivity() {
-        val intent = Intent(this, ChatActivity::class.java)
+        val intent = Intent(this, ChatActivity::class.java).apply {
+            putExtra("username", getSharedPreferences("LoginPrefs", MODE_PRIVATE).getString("account", "Unknown"))
+        }
         startActivity(intent)
         finish() // 結束當前 Activity，避免返回
     }

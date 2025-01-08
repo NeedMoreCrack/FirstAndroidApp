@@ -5,14 +5,20 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.firebase.firestore.FirebaseFirestore
 
 class ChatActivity : AppCompatActivity() {
-    private lateinit var textView2: TextView
     private val db = FirebaseFirestore.getInstance()
 
     @SuppressLint("MissingInflatedId")
@@ -20,17 +26,43 @@ class ChatActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.group_talk) // 確保對應的佈局檔案名稱正確
 
-        // 取得 TextView
-        textView2 = findViewById(R.id.textView2)
+        val username = intent.getStringExtra("username") ?: "Unknown"
+        Log.d("ChatActivity", "Current logged-in user: $username")
+
+        val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
+        recyclerView.layoutManager = LinearLayoutManager(this)
+
+        // 設置 RecyclerView
+        val messages = mutableListOf<Message>()
+        val adapter = ChatAdapter(messages, username)
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        recyclerView.adapter = adapter
+
+        // 實時監聽並獲取聊天訊息
+        fetchChatMessages("group")
 
         // 傳送按鈕
         val sentButton = findViewById<ImageButton>(R.id.sentButton)
+        val inputMessage = findViewById<EditText>(R.id.editTextText)
         sentButton.setOnClickListener() {
             Log.d("sentButton","按下傳送按鈕了")
-        }
+            val messageText = inputMessage.text.toString().trim()
 
-        // 呼叫方法獲取聊天資訊
-        fetchChatData()
+            // 檢查訊息是否為空
+            if (messageText.isEmpty()) {
+                Toast.makeText(this, "請輸入訊息", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 獲取當前登入用戶名稱
+            val username = intent.getStringExtra("username") ?: "Unknown"
+
+            // 調用發送訊息方法
+            sendMessage("group", username, messageText)
+
+            // 清空輸入框
+            inputMessage.text.clear()
+        }
 
         val logoutButton = findViewById<Button>(R.id.logOut)
         logoutButton.setOnClickListener {
@@ -38,22 +70,29 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchChatData() {
-        db.collection("Notes").document("group")
-            .get()
-            .addOnSuccessListener { document ->
-                if (document != null && document.exists()) {
-                    val dataMap = document.data ?: emptyMap()
-                    val allText = dataMap.entries.joinToString(separator = "\n") { "${it.key}: ${it.value}" }
-                    textView2.text = allText
-                    Log.d("Firestore", "Document Data: $dataMap")
-                } else {
-                    Log.d("Firestore", "No such document")
-                }
+    private fun fetchChatMessages(groupId: String) {
+        val messagesRef = db.collection("Groups").document(groupId).collection("messages")
+            .orderBy("timestamp")
+
+        messagesRef.addSnapshotListener { snapshots, error ->
+            if (error != null) {
+                Log.w("Firestore", "Listen failed.", error)
+                return@addSnapshotListener
             }
-            .addOnFailureListener { exception ->
-                Log.w("Firestore", "Error getting document.", exception)
-            }
+
+            val fetchedMessages = snapshots?.documents?.map { doc ->
+                Message(
+                    sender = doc.getString("sender") ?: "Unknown",
+                    content = doc.getString("content") ?: "",
+                    timestamp = doc.getTimestamp("timestamp") ?: com.google.firebase.Timestamp.now()
+                )
+            } ?: emptyList()
+
+            // 更新 RecyclerView 的資料
+            val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
+            val adapter = recyclerView.adapter as ChatAdapter
+            adapter.updateMessages(fetchedMessages)
+        }
     }
 
     private fun logout() {
@@ -88,21 +127,23 @@ class ChatActivity : AppCompatActivity() {
         builder.create().show()
     }
 
-    private fun fetchChatMessages(groupId: String) {
-        val messagesRef = db.collection("Groups").document(groupId).collection("messages")
-        messagesRef.orderBy("timestamp") // 按時間順序排序
-            .addSnapshotListener { snapshots, error ->
-                if (error != null) {
-                    Log.w("Firestore", "Listen failed.", error)
-                    return@addSnapshotListener
+    private fun fetchChatMessages(groupId: String, callback: (List<Message>) -> Unit) {
+        db.collection("Groups").document(groupId).collection("messages")
+            .orderBy("timestamp")
+            .get()
+            .addOnSuccessListener { snapshots ->
+                val messages = snapshots.map { doc ->
+                    Message(
+                        sender = doc.getString("sender") ?: "Unknown",
+                        content = doc.getString("content") ?: "",
+                        timestamp = doc.getTimestamp("timestamp") ?: com.google.firebase.Timestamp.now()
+                    )
                 }
-                val chatContent = StringBuilder()
-                for (doc in snapshots!!) {
-                    val sender = doc.getString("sender") ?: "Unknown"
-                    val content = doc.getString("content") ?: ""
-                    chatContent.append("$sender: $content\\n")
-                }
-                textView2.text = chatContent.toString()
+                callback(messages)
+            }
+            .addOnFailureListener { e ->
+                Log.w("Firestore", "Error fetching messages", e)
+                callback(emptyList())
             }
     }
 
@@ -117,6 +158,82 @@ class ChatActivity : AppCompatActivity() {
             .addOnSuccessListener { Log.d("Firestore", "Message sent successfully!") }
             .addOnFailureListener { e -> Log.w("Firestore", "Error sending message", e) }
     }
-
-
 }
+
+data class Message(
+    val sender: String,
+    val content: String,
+    val timestamp: com.google.firebase.Timestamp
+) {
+    fun getFormattedTime(): String {
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val date = timestamp.toDate()
+        return sdf.format(date)
+    }
+}
+
+class ChatAdapter(private var messages: MutableList<Message>, private val currentUser: String) :
+    RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+
+    companion object {
+        private const val VIEW_TYPE_RIGHT = 1
+        private const val VIEW_TYPE_LEFT = 2
+    }
+
+    override fun getItemViewType(position: Int): Int {
+        return if (messages[position].sender == currentUser) VIEW_TYPE_RIGHT else VIEW_TYPE_LEFT
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return if (viewType == VIEW_TYPE_RIGHT) {
+            val view = inflater.inflate(R.layout.item_message_right, parent, false)
+            RightMessageViewHolder(view)
+        } else {
+            val view = inflater.inflate(R.layout.item_message_left, parent, false)
+            LeftMessageViewHolder(view)
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        val message = messages[position]
+        if (holder is RightMessageViewHolder) {
+            holder.bind(message)
+        } else if (holder is LeftMessageViewHolder) {
+            holder.bind(message)
+        }
+    }
+
+    override fun getItemCount(): Int = messages.size
+
+    fun updateMessages(newMessages: List<Message>) {
+        messages.clear()
+        messages.addAll(newMessages)
+        notifyDataSetChanged()
+    }
+
+    class RightMessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val messageContent: TextView = itemView.findViewById(R.id.message_content)
+        private val messageTime: TextView = itemView.findViewById(R.id.message_time)
+        private val messageSender: TextView = itemView.findViewById(R.id.message_sender)
+
+        fun bind(message: Message) {
+            messageContent.text = message.content
+            messageTime.text = message.getFormattedTime()
+            messageSender.text = message.sender
+        }
+    }
+
+    class LeftMessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val messageContent: TextView = itemView.findViewById(R.id.message_content)
+        private val messageTime: TextView = itemView.findViewById(R.id.message_time)
+        private val messageSender: TextView = itemView.findViewById(R.id.message_sender)
+
+        fun bind(message: Message) {
+            messageContent.text = message.content
+            messageTime.text = message.getFormattedTime()
+            messageSender.text = message.sender
+        }
+    }
+}
+

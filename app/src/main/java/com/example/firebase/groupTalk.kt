@@ -1,8 +1,8 @@
 package com.example.firebase
 
-import android.annotation.SuppressLint
 import android.app.AlertDialog
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
 import android.util.Log
 import android.view.LayoutInflater
@@ -19,33 +19,36 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.firebase.firestore.FirebaseFirestore
 
 class ChatActivity : AppCompatActivity() {
-    private val db = FirebaseFirestore.getInstance()
+    private val db = FirebaseFirestore.getInstance() // 初始化 Firebase Firestore
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var sentButton: ImageButton
+    private lateinit var inputMessage: EditText
+    private lateinit var chatAdapter: ChatAdapter
 
-    @SuppressLint("MissingInflatedId")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.group_talk) // 確保對應的佈局檔案名稱正確
 
+        // 初始化視圖
+        recyclerView = findViewById(R.id.chatRecyclerView)
+        sentButton = findViewById(R.id.sentButton)
+        inputMessage = findViewById(R.id.messageInput)
+
         val username = intent.getStringExtra("username") ?: "Unknown"
         Log.d("ChatActivity", "Current logged-in user: $username")
 
-        val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
-        recyclerView.layoutManager = LinearLayoutManager(this)
-
         // 設置 RecyclerView
         val messages = mutableListOf<Message>()
-        val adapter = ChatAdapter(messages, username)
+        chatAdapter = ChatAdapter(messages, username)
         recyclerView.layoutManager = LinearLayoutManager(this)
-        recyclerView.adapter = adapter
+        recyclerView.adapter = chatAdapter
 
         // 實時監聽並獲取聊天訊息
         fetchChatMessages("group")
 
-        // 傳送按鈕
-        val sentButton = findViewById<ImageButton>(R.id.sentButton)
-        val inputMessage = findViewById<EditText>(R.id.editTextText)
-        sentButton.setOnClickListener() {
-            Log.d("sentButton","按下傳送按鈕了")
+        // 設置傳送按鈕點擊事件
+        sentButton.setOnClickListener {
+            Log.d("sentButton", "按下傳送按鈕了")
             val messageText = inputMessage.text.toString().trim()
 
             // 檢查訊息是否為空
@@ -54,19 +57,60 @@ class ChatActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            // 獲取當前登入用戶名稱
-            val username = intent.getStringExtra("username") ?: "Unknown"
-
-            // 調用發送訊息方法
+            // 發送訊息
             sendMessage("group", username, messageText)
 
             // 清空輸入框
             inputMessage.text.clear()
+
+            // 滾動到最新訊息
+            scrollToBottom()
         }
 
+
+        // 設置登出按鈕
         val logoutButton = findViewById<Button>(R.id.logOut)
         logoutButton.setOnClickListener {
             showLogoutDialog() // 顯示登出確認對話框
+        }
+
+        // 當輸入框獲得焦點時，自動滾動到最新訊息
+        inputMessage.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                scrollToBottom()
+            }
+        }
+
+        // 添加鍵盤彈出監聽
+        addKeyboardListener()
+    }
+
+    private fun addKeyboardListener() {
+        val rootView = findViewById<View>(android.R.id.content)
+        rootView.viewTreeObserver.addOnGlobalLayoutListener {
+            val rect = Rect()
+            rootView.getWindowVisibleDisplayFrame(rect)
+            val screenHeight = rootView.rootView.height
+            val keypadHeight = screenHeight - rect.bottom
+
+            // 如果鍵盤高度超過屏幕高度的 20%，表示鍵盤彈出
+            if (keypadHeight > screenHeight * 0.2) {
+                scrollToBottom()
+            }
+        }
+    }
+
+    // 設定 RecyclerView 自動滾動
+    private fun scrollToBottom() {
+        recyclerView.post {
+            recyclerView.scrollToPosition(chatAdapter.itemCount - 1)
+        }
+    }
+
+    // 滾動到最新訊息
+    private fun scrollToBottom(recyclerView: RecyclerView, adapter: ChatAdapter) {
+        recyclerView.post {
+            recyclerView.scrollToPosition(adapter.itemCount - 1)
         }
     }
 
@@ -89,10 +133,27 @@ class ChatActivity : AppCompatActivity() {
             } ?: emptyList()
 
             // 更新 RecyclerView 的資料
-            val recyclerView = findViewById<RecyclerView>(R.id.recyclerView)
+            val recyclerView = findViewById<RecyclerView>(R.id.chatRecyclerView)
             val adapter = recyclerView.adapter as ChatAdapter
-            adapter.updateMessages(fetchedMessages)
+            if (adapter != null) {
+                adapter.updateMessages(fetchedMessages)
+                scrollToBottom(recyclerView, adapter)
+            } else {
+                Log.w("Firestore", "Adapter is null, cannot update messages.")
+            }
         }
+    }
+
+    private fun sendMessage(groupId: String, sender: String, content: String) {
+        val message = hashMapOf(
+            "sender" to sender,
+            "content" to content,
+            "timestamp" to com.google.firebase.Timestamp.now()
+        )
+        db.collection("Groups").document(groupId).collection("messages")
+            .add(message)
+            .addOnSuccessListener { Log.d("Firestore", "Message sent successfully!") }
+            .addOnFailureListener { e -> Log.w("Firestore", "Error sending message", e) }
     }
 
     private fun logout() {
@@ -127,37 +188,7 @@ class ChatActivity : AppCompatActivity() {
         builder.create().show()
     }
 
-    private fun fetchChatMessages(groupId: String, callback: (List<Message>) -> Unit) {
-        db.collection("Groups").document(groupId).collection("messages")
-            .orderBy("timestamp")
-            .get()
-            .addOnSuccessListener { snapshots ->
-                val messages = snapshots.map { doc ->
-                    Message(
-                        sender = doc.getString("sender") ?: "Unknown",
-                        content = doc.getString("content") ?: "",
-                        timestamp = doc.getTimestamp("timestamp") ?: com.google.firebase.Timestamp.now()
-                    )
-                }
-                callback(messages)
-            }
-            .addOnFailureListener { e ->
-                Log.w("Firestore", "Error fetching messages", e)
-                callback(emptyList())
-            }
-    }
 
-    private fun sendMessage(groupId: String, sender: String, content: String) {
-        val message = hashMapOf(
-            "sender" to sender,
-            "content" to content,
-            "timestamp" to com.google.firebase.Timestamp.now()
-        )
-        db.collection("Groups").document(groupId).collection("messages")
-            .add(message)
-            .addOnSuccessListener { Log.d("Firestore", "Message sent successfully!") }
-            .addOnFailureListener { e -> Log.w("Firestore", "Error sending message", e) }
-    }
 }
 
 data class Message(
@@ -236,4 +267,3 @@ class ChatAdapter(private var messages: MutableList<Message>, private val curren
         }
     }
 }
-

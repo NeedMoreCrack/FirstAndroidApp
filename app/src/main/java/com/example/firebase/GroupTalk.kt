@@ -1,6 +1,7 @@
 package com.example.firebase
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.AlertDialog
 import android.app.NotificationChannel
@@ -205,7 +206,7 @@ class ChatActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@ChatActivity)
             adapter = chatAdapter
         }
-        fetchChatMessages("group")
+        "group".fetchChatMessages()
     }
 
     private fun setupListeners() {
@@ -222,7 +223,7 @@ class ChatActivity : AppCompatActivity() {
                 Toast.makeText(this, "請輸入訊息", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            sendMessage("group", username, messageText)
+            "group".sendMessage(username, messageText)
             inputMessage.text.clear()
             scrollToBottom()
         }
@@ -261,8 +262,8 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
-    private fun fetchChatMessages(groupId: String) {
-        db.collection("Groups").document(groupId).collection("messages")
+    private fun String.fetchChatMessages() {
+        db.collection("Groups").document(this).collection("messages")
             .orderBy("timestamp")
             .addSnapshotListener { snapshots, error ->
                 if (error != null) {
@@ -283,7 +284,7 @@ class ChatActivity : AppCompatActivity() {
             }
     }
 
-    private fun sendMessage(groupId: String, sender: String, content: String) {
+    private fun String.sendMessage(sender: String, content: String) {
         // 在發送訊息時同時更新兩個集合
         val message = hashMapOf(
             "sender" to sender,
@@ -293,7 +294,7 @@ class ChatActivity : AppCompatActivity() {
 
         // 1. 新增訊息到聊天記錄
         db.collection("Groups")
-            .document(groupId)
+            .document(this)
             .collection("messages")
             .add(message)
             .addOnSuccessListener { documentRef ->
@@ -314,7 +315,7 @@ class ChatActivity : AppCompatActivity() {
             }
             .addOnFailureListener { e ->
                 Log.e("Firestore", "Error sending message", e)
-                Toast.makeText(this, "發送訊息失敗", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ChatActivity, "發送訊息失敗", Toast.LENGTH_SHORT).show()
             }
     }
 
@@ -336,26 +337,14 @@ class ChatActivity : AppCompatActivity() {
             FirebaseFirestore.getInstance()
                 .collection("account")
                 .document(username)
-                .update("fcmToken", null) // 將 FCM Token 設為 null 或移除
+                .update("fcmToken", null)
                 .addOnFailureListener { e ->
                     Log.e("FCM", "Error removing token", e)
                 }
         }
 
-        // 停止前景服務（如果有啟動）
-        stopService(Intent(this, ForegroundService::class.java))
-
-        // 清理登錄資訊
-        getSharedPreferences("LoginPrefs", MODE_PRIVATE).edit().apply {
-            clear()
-            apply()
-        }
-
-        // 跳轉回登入頁面
-        val intent = Intent(this, MainActivity::class.java)
-        intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
-        startActivity(intent)
-        finish() // 結束當前頁面
+        // 清除所有的 App 資料，還原為剛安裝的狀態
+        (getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.clearApplicationUserData()
     }
 
     private fun showLogoutDialog() {
@@ -380,7 +369,7 @@ data class Message(
     val timestamp: Timestamp
 ) {
     fun getFormattedTime(): String {
-        return java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        return SimpleDateFormat("HH:mm", Locale.getDefault())
             .format(timestamp.toDate())
     }
 }
@@ -420,6 +409,7 @@ class ChatAdapter(
 
     override fun getItemCount(): Int = messages.size
 
+    @SuppressLint("NotifyDataSetChanged")
     fun updateMessages(newMessages: List<Message>) {
         messages.clear()
         messages.addAll(newMessages)
@@ -427,9 +417,9 @@ class ChatAdapter(
     }
 
     abstract class BaseMessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        protected val messageContent: TextView = itemView.findViewById(R.id.message_content)
-        protected val messageTime: TextView = itemView.findViewById(R.id.message_time)
-        protected val messageSender: TextView = itemView.findViewById(R.id.message_sender)
+        private val messageContent: TextView = itemView.findViewById(R.id.message_content)
+        private val messageTime: TextView = itemView.findViewById(R.id.message_time)
+        private val messageSender: TextView = itemView.findViewById(R.id.message_sender)
 
         fun bind(message: Message) {
             messageContent.text = message.content

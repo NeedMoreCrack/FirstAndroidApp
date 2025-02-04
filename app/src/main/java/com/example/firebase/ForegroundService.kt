@@ -6,7 +6,6 @@ import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 
-
 class ForegroundService : Service() {
     @SuppressLint("ForegroundServiceType")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -18,7 +17,6 @@ class ForegroundService : Service() {
             .build()
 
         startForeground(1, notification)
-
         return START_STICKY
     }
 

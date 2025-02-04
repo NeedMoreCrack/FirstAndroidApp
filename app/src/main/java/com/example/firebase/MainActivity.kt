@@ -1,5 +1,4 @@
 package com.example.firebase
-
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -15,6 +14,7 @@ import androidx.core.content.ContextCompat
 import com.google.firebase.firestore.FirebaseFirestore
 import java.util.Hashtable
 import android.Manifest
+import android.annotation.SuppressLint
 import com.google.firebase.messaging.FirebaseMessaging
 import android.content.Context
 import android.net.Uri
@@ -29,7 +29,6 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         requestNotificationPermission()
         disableBatteryOptimization(this)
-
         checkLoginStatus()
         setContentView(R.layout.login_page)
 
@@ -68,7 +67,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    fun disableBatteryOptimization(context: Context) {
+    @SuppressLint("BatteryLife")
+    private fun disableBatteryOptimization(context: Context) {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val packageName = context.packageName
 

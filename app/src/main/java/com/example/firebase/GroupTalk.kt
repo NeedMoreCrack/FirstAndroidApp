@@ -1,5 +1,4 @@
 package com.example.firebase
-
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.ActivityManager
@@ -61,7 +60,6 @@ class ChatActivity : AppCompatActivity() {
 
     // FCM 相關設定
     private val fcm = FirebaseMessaging.getInstance()
-
     companion object {
         private const val NOTIFICATION_PERMISSION_REQUEST_CODE = 1001
         const val CHANNEL_ID = "chat_notifications"
